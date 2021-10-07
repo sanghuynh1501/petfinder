@@ -1,13 +1,8 @@
 import os
-import cv2
 import random
-from imgaug.augmenters.flip import Flipud
 import numpy as np
 import pandas as pd
-from six import b
-import tensorflow as tf
 from tqdm import tqdm
-from imgaug import augmenters as iaa
 from sklearn.model_selection import train_test_split
 
 IMAGE_SIZE = 224
