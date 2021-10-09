@@ -5,18 +5,25 @@ import pandas as pd
 from tqdm import tqdm
 import tensorflow as tf
 
-from models import ResNet50
 from swintransformer import SwinTransformer
 
+physical_devices = tf.config.list_physical_devices('GPU')
+try:
+  tf.config.experimental.set_memory_growth(physical_devices[0], True)
+except:
+  # Invalid device or cannot modify virtual devices once initialized.
+  pass
+
 train = pd.read_csv('petfinder-pawpularity-score/train_yolo.csv')
-model = SwinTransformer('swin_large_224', num_classes=1000, include_top=False, pretrained=True)
+model = SwinTransformer('swin_large_384', num_classes=1000, include_top=False, pretrained=True)
 
 with tqdm(total=9914) as pbar:
     for idx, file_path in enumerate(train['file_path']):
         file_path_origin = file_path.replace('train', 'train_crop').replace('.jpg', '')
-        for idx in range(10):
+        for idx in range(20):
             file_path = f'{file_path_origin}_{idx}'
-            file_path_new = file_path.replace('train_crop', 'train_feature_full')
+            file_path = file_path.replace('train_crop', 'train_crop_large')
+            file_path_new = file_path.replace('train_crop_large', 'train_feature_full_large')
             if not os.path.isdir(file_path_new):
                 for i, image in enumerate(os.listdir(file_path)):
                     image = cv2.imread(f'{file_path}/{image}')

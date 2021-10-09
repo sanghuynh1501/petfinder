@@ -5,7 +5,7 @@ import pandas as pd
 import tensorflow as tf
 from imgaug import augmenters as iaa
 
-IMAGE_SIZE = 224
+IMAGE_SIZE = 384
 train = pd.read_csv('petfinder-pawpularity-score/train_yolo.csv')
 
 # for file_path, x_min, x_max, y_min, y_max in zip(train['file_path'], train['x_min'], train['x_max'], train['y_min'], train['y_max']):
@@ -29,8 +29,8 @@ for file_path, coords in zip(train['file_path'], train['coords']):
     y2s = []
 
     folder = file_path.split('.')[0]
-    folder = folder.replace('train', 'train_crop')
-    for i in range(0, 10, 1):
+    folder = folder.replace('train', 'train_crop_large')
+    for i in range(0, 20, 1):
         new_folder = f'{folder}_{i}'
         os.makedirs(new_folder)
         for ord, coord in enumerate(coords):
@@ -39,12 +39,13 @@ for file_path, coords in zip(train['file_path'], train['coords']):
                 new_image = image[coord[1]:coord[3], coord[0]:coord[2]]
             else:
                 new_image = image
-            if i < 3:
+            if i < 6:
                 au_image = new_image
             else:
                 new_image = np.expand_dims(new_image, 0)
                 seq = iaa.Sequential([
-                    iaa.Crop(px=(0, 10)),
+                    iaa.Crop(px=(10, 50)),
+                    iaa.Affine(rotate=(-10, 10)),
                     iaa.Fliplr(0.5)
                 ])
                 au_image = seq(images=new_image)

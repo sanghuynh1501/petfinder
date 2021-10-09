@@ -1,6 +1,8 @@
 import tensorflow as tf
+from model_gru import Decoder, Encoder
 
 from model_transformer import TranEncoder
+from model_transformer_full import Transformer
 from swintransformer import SwinTransformer
 
 class PetNetFull(tf.keras.Model):
@@ -39,17 +41,17 @@ class PetNetFull(tf.keras.Model):
         return self.final_output_class(features), self.final_output(concat)
 
 class PetNetTiny(tf.keras.Model):
-    def __init__(self, num_layers, d_model, num_heads, dff, maximum_position_encoding, rate):
+    def __init__(self, num_layers, d_model, num_heads, dff, rate):
         super(PetNetTiny, self).__init__()
 
-        self.tran_encoder = TranEncoder(num_layers, d_model, num_heads, dff, maximum_position_encoding, rate)
-        self.densenet = DenseNet()
+        self.tran_encoder = TranEncoder(num_layers, d_model, num_heads, dff, 13, rate)
+        self.densenet = DenseNet(d_model)
 
         self.flatten = tf.keras.layers.Flatten()
         self.final_output = tf.keras.layers.Dense(1, activation='sigmoid')
-        self.final_output_class = tf.keras.layers.Dense(20)
+        self.final_output_class = tf.keras.layers.Dense(10)
 
-    def call(self, features, target, length, training):
+    def call(self, features, target, length, target_length, training):
 
         target = self.densenet(target)
         length = self.create_padding_mask(length)
@@ -64,11 +66,55 @@ class PetNetTiny(tf.keras.Model):
     def create_padding_mask(self, seq):        
         return seq[:, tf.newaxis, tf.newaxis, :]
 
+class PetNetTinyNew(tf.keras.Model):
+    def __init__(self, num_layers, d_model, num_heads, dff, rate):
+        super(PetNetTinyNew, self).__init__()
+
+        self.transformer = Transformer(num_layers, d_model, num_heads, dff, 12, 13, 12, rate)
+
+        self.flatten = tf.keras.layers.Flatten()
+        self.final_output = tf.keras.layers.Dense(1, activation='sigmoid')
+        self.final_output_class = tf.keras.layers.Dense(10)
+
+    def call(self, inp, tar, length, target_length, training):
+
+        enc_output, dec_output = self.transformer(inp, tar, length, target_length, training)
+        
+        enc_output = self.flatten(enc_output)
+        dec_output = self.flatten(dec_output)
+
+        return self.final_output_class(enc_output), self.final_output(dec_output)
+    
+    def create_padding_mask(self, seq):        
+        return seq[:, tf.newaxis, tf.newaxis, :]
+
+class PetNetTinyGRU(tf.keras.Model):
+    def __init__(self, embedding_dim, enc_units, dec_units):
+        super(PetNetTinyGRU, self).__init__()
+
+        self.encoder = Encoder(embedding_dim, enc_units)
+        self.decoder = Decoder(12, embedding_dim, dec_units)
+
+        self.flatten = tf.keras.layers.Flatten()
+        self.final_output = tf.keras.layers.Dense(1, activation='sigmoid')
+
+    def call(self, inp, tar, length):
+
+        enc_output, enc_state = self.encoder(inp)
+        dec_output, _ = self.decoder(tar, enc_output, enc_state, length)
+
+        dec_output = self.flatten(dec_output)
+
+        return self.final_output(dec_output)
+    
+    def create_padding_mask(self, seq):        
+        return seq[:, tf.newaxis, tf.newaxis, :]
+
 class DenseNet(tf.keras.Model):
-    def __init__(self):
+    def __init__(self, d_model):
         super(DenseNet, self).__init__()
 
-        self.dense = tf.keras.layers.Dense(128, activation='relu')
+        self.dense = tf.keras.layers.Dense(d_model, activation='relu')
 
     def call(self, x):
             

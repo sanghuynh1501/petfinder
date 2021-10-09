@@ -8,15 +8,14 @@ from sklearn.model_selection import train_test_split
 IMAGE_SIZE = 224
 FEATURE_SIZE = 1536
 MAX_LENGTH = 12
-patch_size = 10
 
 def score2class(score):
     index = 0
     while index < score:
-        index += 5
-    return score / 5
+        index += 10
+    return score / 10
 
-def shuffle_data(links, feature, target, length, score, real_score):
+def shuffle_data(links, feature, target, length, target_length, score, real_score):
     indices = np.arange(feature.shape[0])
     np.random.shuffle(indices)
 
@@ -25,9 +24,10 @@ def shuffle_data(links, feature, target, length, score, real_score):
     score = score[indices]
     real_score = real_score[indices]
     length = length[indices]
+    target_length = target_length[indices]
     links = get_link_item(links, indices)
 
-    return links, feature, target, length, score, real_score
+    return links, feature, target, length, target_length, score, real_score
 
 
 def render_target(target):
@@ -36,7 +36,18 @@ def render_target(target):
     for i in range(len(target)):
         if float(target[i]) == 1:
             result.append(float(i))
-    return np.concatenate([np.array(result), np.zeros(max_length - len(result), dtype=np.float32)])
+    length = len(result)
+    return np.concatenate([np.array(result), np.zeros((max_length - length,))]), \
+        np.concatenate([np.zeros((length,)), np.ones((max_length - length,))])
+
+def render_target_new(target):
+    result = []
+    max_length = len(target)
+    for i in range(len(target)):
+        result.append(float(target[i]))
+    length = len(result)
+    return np.concatenate([np.array(result), np.zeros((max_length - length,))]), \
+        np.concatenate([np.zeros((length,)), np.ones((max_length - length,))])
 
 def generate_link_batch(batch_size):
     batch = []
@@ -58,6 +69,7 @@ def sequence_generator(data, indexes, batch_size, isTest=False):
     feature_batch = np.zeros((batch_size, 13, FEATURE_SIZE), np.float32)
     target_batch = np.zeros((batch_size, 12))
     length_batch = np.zeros((batch_size, 13), np.int32)
+    target_length_batch = np.zeros((batch_size, 12), np.int32)
     score_batch = np.zeros((batch_size, 1))
     real_score_batch = np.zeros((batch_size, 1))
 
@@ -86,31 +98,33 @@ def sequence_generator(data, indexes, batch_size, isTest=False):
                             data['Occlusion'], data['Info'],
                             data['Blur'], data['Pawpularity']):
 
-            file_path_origin = file_path.replace('train', 'train_crop').replace('.jpg', '')
+            file_path_origin = file_path.replace('train', 'train_crop_large').replace('.jpg', '')
             total = 1
             if not isTest:
-                total = 10
+                total = 20
             for idx in range(total):
                 file_path = f'{file_path_origin}_{idx}'
                 file_path_new = file_path.replace('train_crop', 'train_feature_full')
                 features_new = np.zeros((13, FEATURE_SIZE))
                 length_new = np.ones((13,))
-
-                for ord, feature_link in enumerate(os.listdir(file_path_new)):
+                folder = os.listdir(file_path_new)
+                random.shuffle(folder)
+                for ord, feature_link in enumerate(folder):
                     feature = np.load(f'{file_path_new}/{feature_link}')
                     features_new[ord] = feature[0]
                     length_new[ord] = 0
 
-                target_new = render_target(
+                target_new, target_length = render_target(
                     [focus, eyes, face, near, action, accessory, group, collage, human, occlusion, info, blur])
                 pawscore_new = np.array([score2class(pawscore) - 1])
                 real_score_new = np.array([float(pawscore / 100)])
 
                 if count >= batch_size:
-                    yield shuffle_data(link_batch, feature_batch.astype(np.float32), target_batch.astype(np.int32), length_batch.astype(np.int32), score_batch.astype(np.int32), real_score_batch.astype(np.float32))
+                    yield shuffle_data(link_batch, feature_batch.astype(np.float32), target_batch.astype(np.int32), length_batch.astype(np.int32), target_length_batch.astype(np.int32), score_batch.astype(np.int32), real_score_batch.astype(np.float32))
                     feature_batch = np.zeros((batch_size, 13, FEATURE_SIZE))
                     target_batch = np.zeros((batch_size, 12))
                     length_batch = np.zeros((batch_size, 13))
+                    target_length_batch = np.zeros((batch_size, 12))
                     score_batch = np.zeros((batch_size, 1))
                     real_score_batch = np.zeros((batch_size, 1))
                     link_batch = generate_link_batch(batch_size)
@@ -119,6 +133,7 @@ def sequence_generator(data, indexes, batch_size, isTest=False):
                     feature_batch[count] = features_new
                     target_batch[count] = target_new
                     length_batch[count] = length_new
+                    target_length_batch[count] = target_length
                     score_batch[count] = pawscore_new
                     link_batch[count] = file_path
                     real_score_batch[count] = real_score_new
