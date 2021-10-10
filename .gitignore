@@ -2,4 +2,6 @@ __pycache__
 petfinder-pawpularity-score
 swintransformer
 training_checkpoints
-yolov5
+checkpoints
+swin_transformer_weight
+yolov5/yolov5x6.pt

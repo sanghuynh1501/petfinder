@@ -25,11 +25,8 @@ indexes = np.array(range(length))
 
 batch_size = 256
 
-num_layers = 2
 d_model = 64
-num_heads = 4
 dff = 64
-rate = 0.2
 alpha = 1
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -122,61 +119,61 @@ test_accs = []
 
 idx = 1
 
-for train_indexes, test_indexes in kf.split(indexes):
-    print('=======================================================================')
-    print('FOLD ', idx)
+# for train_indexes, test_indexes in kf.split(indexes):
+#     print('=======================================================================')
+#     print('FOLD ', idx)
 
-    min_train_loss = float('inf')
-    min_test_loss = float('inf')
-    min_train_acc = float('inf')
-    min_test_acc = float('inf')
+#     min_train_loss = float('inf')
+#     min_test_loss = float('inf')
+#     min_train_acc = float('inf')
+#     min_test_acc = float('inf')
 
-    learning_rate = CustomSchedule(d_model)
-    optimizer = tfa.optimizers.RectifiedAdam(learning_rate, beta_1=0.9, beta_2=0.98,
-                                            epsilon=1e-9)
-    # encoder = PetNetTinyNew(num_layers, d_model, num_heads, dff, rate)
-    encoder = PetNetTinyGRU(d_model, dff, dff)
+#     learning_rate = CustomSchedule(d_model)
+#     optimizer = tfa.optimizers.RectifiedAdam(learning_rate, beta_1=0.9, beta_2=0.98,
+#                                             epsilon=1e-9)
+#     # encoder = PetNetTinyNew(num_layers, d_model, num_heads, dff, rate)
+#     encoder = PetNetTinyGRU(d_model, dff, dff)
 
-    for epoch in range(EPOCHS):
-        train_loss.reset_states()
-        test_loss.reset_states()
-        train_accuracy.reset_states()
-        test_accuracy.reset_states()
-        train_accuracy_class.reset_states()
-        test_accuracy_class.reset_states()
+#     for epoch in range(EPOCHS):
+#         train_loss.reset_states()
+#         test_loss.reset_states()
+#         train_accuracy.reset_states()
+#         test_accuracy.reset_states()
+#         train_accuracy_class.reset_states()
+#         test_accuracy_class.reset_states()
 
-        for _, features, target, length, target_length, score, real_score in sequence_generator(data, train_indexes, batch_size, False):
-            length = length.astype(np.bool)
-            train_step(features, target, length, target_length, score, real_score)
+#         for _, features, target, length, target_length, score, real_score in sequence_generator(data, train_indexes, batch_size, False):
+#             length = length.astype(np.bool)
+#             train_step(features, target, length, target_length, score, real_score)
 
-        for _, features, target, length, target_length, score, real_score in sequence_generator(data, test_indexes, batch_size, True):
-            length = length.astype(np.bool)
-            test_step(features, target, length, target_length, score, real_score)
+#         for _, features, target, length, target_length, score, real_score in sequence_generator(data, test_indexes, batch_size, True):
+#             length = length.astype(np.bool)
+#             test_step(features, target, length, target_length, score, real_score)
 
-        if test_loss.result() < min_test_loss:
-            min_train_loss = train_loss.result()
-            min_test_loss = test_loss.result()
-            min_train_acc = train_accuracy.result()
-            min_test_acc = test_accuracy.result()
+#         if test_loss.result() < min_test_loss:
+#             min_train_loss = train_loss.result()
+#             min_test_loss = test_loss.result()
+#             min_train_acc = train_accuracy.result()
+#             min_test_acc = test_accuracy.result()
 
-        print(
-            f'Epoch {epoch + 1}, '
-            f'Train Loss: {train_loss.result()}, '
-            f'Test Loss: {test_loss.result()}, '
-            f'Train Acc: {train_accuracy.result()}, '
-            f'Test Acc: {test_accuracy.result()}, '
-            f'Train Acc Class: {train_accuracy_class.result()}, '
-            f'Test Acc Class: {test_accuracy_class.result()}, '
-        )
+#         # print(
+#         #     f'Epoch {epoch + 1}, '
+#         #     f'Train Loss: {train_loss.result()}, '
+#         #     f'Test Loss: {test_loss.result()}, '
+#         #     f'Train Acc: {train_accuracy.result()}, '
+#         #     f'Test Acc: {test_accuracy.result()}, '
+#         #     f'Train Acc Class: {train_accuracy_class.result()}, '
+#         #     f'Test Acc Class: {test_accuracy_class.result()}, '
+#         # )
 
-    train_losses.append(min_train_loss)
-    test_losses.append(min_test_loss)
-    train_accs.append(min_train_acc)
-    test_accs.append(min_test_acc)
+#     train_losses.append(min_train_loss)
+#     test_losses.append(min_test_loss)
+#     train_accs.append(min_train_acc)
+#     test_accs.append(min_test_acc)
 
-    idx += 1
+#     idx += 1
 
-    break
+#     # break
 
 # print(
 #     f'Train Loss: {np.mean(train_losses)}, '
@@ -184,3 +181,48 @@ for train_indexes, test_indexes in kf.split(indexes):
 #     f'Train Acc: {np.mean(train_accs)}, '
 #     f'Test Acc: {np.mean(test_accs)}, '
 # )
+
+learning_rate = CustomSchedule(d_model)
+optimizer = tfa.optimizers.RectifiedAdam(learning_rate, beta_1=0.9, beta_2=0.98,
+                                        epsilon=1e-9)
+# encoder = PetNetTinyNew(num_layers, d_model, num_heads, dff, rate)
+encoder = PetNetTinyGRU(d_model, dff, dff)
+
+checkpoint_path = "./checkpoints/train"
+
+ckpt = tf.train.Checkpoint(encoder=encoder)
+
+ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
+
+for epoch in range(EPOCHS):
+    train_loss.reset_states()
+    test_loss.reset_states()
+    train_accuracy.reset_states()
+    test_accuracy.reset_states()
+    train_accuracy_class.reset_states()
+    test_accuracy_class.reset_states()
+
+    for _, features, target, length, target_length, score, real_score in sequence_generator(data, indexes, batch_size, False):
+        length = length.astype(np.bool)
+        train_step(features, target, length, target_length, score, real_score)
+
+    # for _, features, target, length, target_length, score, real_score in sequence_generator(data, indexes, batch_size, True):
+    #     length = length.astype(np.bool)
+    #     test_step(features, target, length, target_length, score, real_score)
+
+    # if test_loss.result() < min_train_loss:
+    #     min_train_loss = train_loss.result()
+    #     min_test_loss = test_loss.result()
+    #     min_train_acc = train_accuracy.result()
+    #     min_test_acc = test_accuracy.result()
+    ckpt_save_path = ckpt_manager.save()
+
+    print(
+        f'Epoch {epoch + 1}, '
+        f'Train Loss: {train_loss.result()}, '
+        f'Test Loss: {test_loss.result()}, '
+        f'Train Acc: {train_accuracy.result()}, '
+        f'Test Acc: {test_accuracy.result()}, '
+        f'Train Acc Class: {train_accuracy_class.result()}, '
+        f'Test Acc Class: {test_accuracy_class.result()}, '
+    )

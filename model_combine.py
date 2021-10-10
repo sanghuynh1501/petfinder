@@ -106,9 +106,6 @@ class PetNetTinyGRU(tf.keras.Model):
         dec_output = self.flatten(dec_output)
 
         return self.final_output(dec_output)
-    
-    def create_padding_mask(self, seq):        
-        return seq[:, tf.newaxis, tf.newaxis, :]
 
 class DenseNet(tf.keras.Model):
     def __init__(self, d_model):
