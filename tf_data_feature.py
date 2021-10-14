@@ -66,9 +66,9 @@ def sequence_generator(data, indexes, batch_size, isTest=False):
     data = data.iloc[indexes, :]
 
     link_batch = generate_link_batch(batch_size)
-    feature_batch = np.zeros((batch_size, 13, FEATURE_SIZE), np.float32)
+    feature_batch = np.zeros((batch_size, 14, FEATURE_SIZE), np.float32)
     target_batch = np.zeros((batch_size, 12))
-    length_batch = np.zeros((batch_size, 13), np.int32)
+    length_batch = np.zeros((batch_size, 14), np.int32)
     target_length_batch = np.zeros((batch_size, 12), np.int32)
     score_batch = np.zeros((batch_size, 1))
     real_score_batch = np.zeros((batch_size, 1))
@@ -104,9 +104,9 @@ def sequence_generator(data, indexes, batch_size, isTest=False):
                 total = 20
             for idx in range(total):
                 file_path = f'{file_path_origin}_{idx}'
-                file_path_new = file_path.replace('train_crop', 'train_feature_full')
-                features_new = np.zeros((13, FEATURE_SIZE))
-                length_new = np.ones((13,))
+                file_path_new = file_path.replace('train_crop_large', 'feature_full_large_new')
+                features_new = np.zeros((14, FEATURE_SIZE))
+                length_new = np.ones((14,))
                 folder = os.listdir(file_path_new)
                 random.shuffle(folder)
                 for ord, feature_link in enumerate(folder):
@@ -121,9 +121,9 @@ def sequence_generator(data, indexes, batch_size, isTest=False):
 
                 if count >= batch_size:
                     yield shuffle_data(link_batch, feature_batch.astype(np.float32), target_batch.astype(np.int32), length_batch.astype(np.int32), target_length_batch.astype(np.int32), score_batch.astype(np.int32), real_score_batch.astype(np.float32))
-                    feature_batch = np.zeros((batch_size, 13, FEATURE_SIZE))
+                    feature_batch = np.zeros((batch_size, 14, FEATURE_SIZE))
                     target_batch = np.zeros((batch_size, 12))
-                    length_batch = np.zeros((batch_size, 13))
+                    length_batch = np.zeros((batch_size, 14))
                     target_length_batch = np.zeros((batch_size, 12))
                     score_batch = np.zeros((batch_size, 1))
                     real_score_batch = np.zeros((batch_size, 1))

@@ -113,7 +113,7 @@ def evaluate_step(inp, target, length, real_score):
 
 EPOCHS = 10
 
-kf = KFold(n_splits=10, random_state=None, shuffle=False)
+kf = KFold(n_splits=5, random_state=None, shuffle=False)
 
 train_losses = []
 test_losses = []
@@ -146,11 +146,11 @@ for train_indexes, test_indexes in kf.split(indexes):
         test_accuracy_class.reset_states()
 
         for _, features, target, length, target_length, score, real_score in sequence_generator(data, train_indexes, batch_size, False):
-            length = length.astype(np.bool)
+            length = length.astype(np.bool_)
             train_step(features, target, length, target_length, score, real_score)
 
         for _, features, target, length, target_length, score, real_score in sequence_generator(data, test_indexes, batch_size, True):
-            length = length.astype(np.bool)
+            length = length.astype(np.bool_)
             test_step(features, target, length, target_length, score, real_score)
 
         if test_loss.result() < min_test_loss:
@@ -159,15 +159,15 @@ for train_indexes, test_indexes in kf.split(indexes):
             min_train_acc = train_accuracy.result()
             min_test_acc = test_accuracy.result()
 
-        print(
-            f'Epoch {epoch + 1}, '
-            f'Train Loss: {train_loss.result()}, '
-            f'Test Loss: {test_loss.result()}, '
-            f'Train Acc: {train_accuracy.result()}, '
-            f'Test Acc: {test_accuracy.result()}, '
-            f'Train Acc Class: {train_accuracy_class.result()}, '
-            f'Test Acc Class: {test_accuracy_class.result()}, '
-        )
+        # print(
+        #     f'Epoch {epoch + 1}, '
+        #     f'Train Loss: {train_loss.result()}, '
+        #     f'Test Loss: {test_loss.result()}, '
+        #     f'Train Acc: {train_accuracy.result()}, '
+        #     f'Test Acc: {test_accuracy.result()}, '
+        #     f'Train Acc Class: {train_accuracy_class.result()}, '
+        #     f'Test Acc Class: {test_accuracy_class.result()}, '
+        # )
 
     train_losses.append(min_train_loss)
     test_losses.append(min_test_loss)
@@ -176,11 +176,9 @@ for train_indexes, test_indexes in kf.split(indexes):
 
     idx += 1
 
-    break
-
-# print(
-#     f'Train Loss: {np.mean(train_losses)}, '
-#     f'Test Loss: {np.mean(test_losses)}, '
-#     f'Train Acc: {np.mean(train_accs)}, '
-#     f'Test Acc: {np.mean(test_accs)}, '
-# )
+print(
+    f'Train Loss: {np.mean(train_losses)}, '
+    f'Test Loss: {np.mean(test_losses)}, '
+    f'Train Acc: {np.mean(train_accs)}, '
+    f'Test Acc: {np.mean(test_accs)}, '
+)

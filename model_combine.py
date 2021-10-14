@@ -92,20 +92,23 @@ class PetNetTinyGRU(tf.keras.Model):
     def __init__(self, embedding_dim, enc_units, dec_units):
         super(PetNetTinyGRU, self).__init__()
 
-        self.encoder = Encoder(embedding_dim, enc_units)
-        self.decoder = Decoder(12, embedding_dim, dec_units)
+        self.encoder_inp = tf.keras.layers.Dense(128)
+        self.embedding = tf.keras.layers.Embedding(12, 12)
+        self.encoder_tar = tf.keras.layers.Dense(128)
 
-        self.flatten = tf.keras.layers.Flatten()
+        self.gru = tf.keras.layers.GRU(64)
         self.final_output = tf.keras.layers.Dense(1, activation='sigmoid')
 
     def call(self, inp, tar, length):
 
-        enc_output, enc_state = self.encoder(inp)
-        dec_output, _ = self.decoder(tar, enc_output, enc_state, length)
+        enc_output = self.encoder_inp(inp)
+        tar = self.embedding(tar)
+        dec_output = self.encoder_tar(tar)
 
-        dec_output = self.flatten(dec_output)
+        output = tf.concat([enc_output, dec_output], 1)
+        output = self.gru(output)
 
-        return self.final_output(dec_output)
+        return self.final_output(output)
     
     def create_padding_mask(self, seq):        
         return seq[:, tf.newaxis, tf.newaxis, :]
