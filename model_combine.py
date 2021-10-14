@@ -92,12 +92,12 @@ class PetNetTinyGRU(tf.keras.Model):
     def __init__(self, embedding_dim, enc_units, dec_units):
         super(PetNetTinyGRU, self).__init__()
 
-        self.encoder_inp = tf.keras.layers.Dense(128)
+        self.encoder_inp = tf.keras.layers.GRU(128)
         self.embedding = tf.keras.layers.Embedding(12, 12)
-        self.encoder_tar = tf.keras.layers.Dense(128)
+        self.encoder_tar = tf.keras.layers.GRU(128)
 
-        self.gru = tf.keras.layers.GRU(64)
         self.final_output = tf.keras.layers.Dense(1, activation='sigmoid')
+        self.dropout = tf.keras.layers.Dropout(0.3)
 
     def call(self, inp, tar, length):
 
@@ -106,7 +106,7 @@ class PetNetTinyGRU(tf.keras.Model):
         dec_output = self.encoder_tar(tar)
 
         output = tf.concat([enc_output, dec_output], 1)
-        output = self.gru(output)
+        output = self.dropout(output)
 
         return self.final_output(output)
     

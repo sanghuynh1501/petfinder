@@ -3,3 +3,6 @@ petfinder-pawpularity-score
 swintransformer
 training_checkpoints
 yolov5
+checkpoints
+swin_transformer_weight
+submission.csv

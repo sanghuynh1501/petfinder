@@ -1,3 +1,4 @@
+import random
 import numpy as np
 import pandas as pd
 
@@ -8,7 +9,7 @@ import tensorflow as tf
 import tensorflow_addons as tfa
 
 from model_combine import PetNetTiny, PetNetTinyGRU, PetNetTinyNew
-from tf_data_feature import sequence_generator
+from tf_data_feature import get_feature, sequence_generator
 
 physical_devices = tf.config.list_physical_devices('GPU')
 try:
@@ -22,7 +23,7 @@ indexes = np.array(range(length))
 
 # train_indexes, test_indexes, _, _ = train_test_split(
 #     indexes, indexes, test_size=0.1, random_state=42)
-
+FEATURE_SIZE = 1536
 batch_size = 256
 
 num_layers = 2
@@ -71,9 +72,47 @@ test_accuracy_class = tf.keras.metrics.SparseCategoricalAccuracy(
 #                                  encoder=encoder,
 #                                  decoder=decoder)
 
+def mixup(data, indexes, x, y, fixed_length, alpha: 1.0):
+    lam = np.random.beta(alpha, alpha)
+    rand_indexes = random.sample(range(0, len(indexes)), batch_size)
+    data = data.iloc[rand_indexes, :]
+    feature_batch = np.zeros((batch_size, 14, FEATURE_SIZE), np.float32)
+    real_score_batch = np.zeros((batch_size, 1))
+    fixed_length_batch = np.zeros((batch_size,))
+
+    for idx, (file_path, pawscore) in enumerate(zip(data['file_path'], data['Pawpularity'])):
+        index = random.randint(0, 19)
+        file_path = file_path.replace(
+                'train', 'feature_full_large_new').replace('.jpg', '')
+        features_new, _, _, _, _, real_score_new, fixed_length_new, _ = get_feature(
+            f'{file_path}_{index}', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, pawscore)
+        feature_batch[idx] = features_new
+        real_score_batch[idx] = real_score_new
+        fixed_length_batch[idx] = fixed_length_new
+
+    mixed_x = lam * x + (1 - lam) * feature_batch
+    target_a, target_b = y, real_score_batch
+    return mixed_x, target_a, target_b, lam, np.concatenate([fixed_length_batch, fixed_length], 0)
+
+def drop_data(features, lengths, target, length_targets):
+    max_length = int(np.max(lengths))
+    max_length_target = int(np.max(length_targets))
+    return features[:, :max_length, :], target[:, :max_length_target]
 
 # @tf.function
-def train_step(inp, target, length, target_length, score, real_score):
+def train_step(inp, target, length, target_length, score, real_score, real_score_lam, lam):
+    with tf.GradientTape() as tape:
+        # class_ouput, enc_output = encoder(inp, target, length, target_length, True)
+        enc_output = encoder(inp, target, length)
+        loss = loss_object(real_score, enc_output) * lam + loss_object(real_score_lam, enc_output) * (1 - lam)
+
+    gradients = tape.gradient(loss, encoder.trainable_variables)
+    optimizer.apply_gradients(zip(gradients, encoder.trainable_variables))
+
+    train_loss(loss)
+    train_accuracy(real_score, enc_output)
+
+def train_step_mini(inp, target, length, target_length, score, real_score):
     with tf.GradientTape() as tape:
         # class_ouput, enc_output = encoder(inp, target, length, target_length, True)
         enc_output = encoder(inp, target, length)
@@ -84,10 +123,6 @@ def train_step(inp, target, length, target_length, score, real_score):
 
     train_loss(loss)
     train_accuracy(real_score, enc_output)
-    # enc_output = np.argmax(enc_output, -1)
-    # enc_output = np.expand_dims(enc_output, -1)
-    # train_accuracy(score, enc_output)
-
 
 # @tf.function
 def test_step(inp, target, length, target_length, score, real_score):
@@ -98,9 +133,6 @@ def test_step(inp, target, length, target_length, score, real_score):
 
     test_loss(loss)
     test_accuracy(real_score, enc_output)
-    # enc_output = np.argmax(enc_output, -1)
-    # enc_output = np.expand_dims(enc_output, -1)
-    # test_accuracy(score, enc_output)
 
 
 def evaluate_step(inp, target, length, real_score):
@@ -145,12 +177,18 @@ for train_indexes, test_indexes in kf.split(indexes):
         train_accuracy_class.reset_states()
         test_accuracy_class.reset_states()
 
-        for _, features, target, length, target_length, score, real_score in sequence_generator(data, train_indexes, batch_size, False):
+        for _, features, target, length, target_length, score, real_score, fixed_length, fixed_length_target in sequence_generator(data, train_indexes, batch_size, False):
             length = length.astype(np.bool_)
-            train_step(features, target, length, target_length, score, real_score)
-
-        for _, features, target, length, target_length, score, real_score in sequence_generator(data, test_indexes, batch_size, True):
+            if np.random.rand(1)[0] < 0.5:
+                features, real_score, real_score_lam, lam, fixed_length = mixup(data, train_indexes, features, real_score, fixed_length, 0.5)
+                features, target = drop_data(features, fixed_length, target, fixed_length_target)
+                train_step(features, target, length, target_length, score, real_score, real_score_lam, lam)
+            else:
+                features, target = drop_data(features, fixed_length, target, fixed_length_target)
+                train_step_mini(features, target, length, target_length, score, real_score)
+        for _, features, target, length, target_length, score, real_score, fixed_length, fixed_length_target in sequence_generator(data, test_indexes, batch_size, True):
             length = length.astype(np.bool_)
+            features, target = drop_data(features, fixed_length, target, fixed_length_target)
             test_step(features, target, length, target_length, score, real_score)
 
         if test_loss.result() < min_test_loss:
@@ -159,15 +197,15 @@ for train_indexes, test_indexes in kf.split(indexes):
             min_train_acc = train_accuracy.result()
             min_test_acc = test_accuracy.result()
 
-        # print(
-        #     f'Epoch {epoch + 1}, '
-        #     f'Train Loss: {train_loss.result()}, '
-        #     f'Test Loss: {test_loss.result()}, '
-        #     f'Train Acc: {train_accuracy.result()}, '
-        #     f'Test Acc: {test_accuracy.result()}, '
-        #     f'Train Acc Class: {train_accuracy_class.result()}, '
-        #     f'Test Acc Class: {test_accuracy_class.result()}, '
-        # )
+        print(
+            f'Epoch {epoch + 1}, '
+            f'Train Loss: {train_loss.result()}, '
+            f'Test Loss: {test_loss.result()}, '
+            f'Train Acc: {train_accuracy.result()}, '
+            f'Test Acc: {test_accuracy.result()}, '
+            f'Train Acc Class: {train_accuracy_class.result()}, '
+            f'Test Acc Class: {test_accuracy_class.result()}, '
+        )
 
     train_losses.append(min_train_loss)
     test_losses.append(min_test_loss)
@@ -176,9 +214,11 @@ for train_indexes, test_indexes in kf.split(indexes):
 
     idx += 1
 
-print(
-    f'Train Loss: {np.mean(train_losses)}, '
-    f'Test Loss: {np.mean(test_losses)}, '
-    f'Train Acc: {np.mean(train_accs)}, '
-    f'Test Acc: {np.mean(test_accs)}, '
-)
+    break
+
+# print(
+#     f'Train Loss: {np.mean(train_losses)}, '
+#     f'Test Loss: {np.mean(test_losses)}, '
+#     f'Train Acc: {np.mean(train_accs)}, '
+#     f'Test Acc: {np.mean(test_accs)}, '
+# )
