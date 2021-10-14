@@ -10,9 +10,9 @@ from tensorflow.keras.layers import Dense, Dropout, Conv2D, LayerNormalization, 
 
 physical_devices = tf.config.list_physical_devices('GPU')
 try:
-  tf.config.experimental.set_memory_growth(physical_devices[0], True)
+    tf.config.experimental.set_memory_growth(physical_devices[0], True)
 except:
-  pass
+    pass
 
 CFGS = {
     'swin_tiny_224': dict(input_size=(224, 224), window_size=7, embed_dim=96, depths=[2, 2, 6, 2], num_heads=[3, 6, 12, 24]),
@@ -466,6 +466,7 @@ def SwinTransformer(model_name='swin_tiny_224', num_classes=1000, include_top=Tr
 
     return net
 
+
 IMAGE_SIZE = 384
 D_MODEL = 32
 DFF = 64
@@ -488,8 +489,11 @@ def get_image_file_path(image_id):
 
 test['file_path'] = test['Id'].apply(get_image_file_path)
 
-yolov5x6_model = torch.hub.load('yolov5', 'yolov5x6', pretrained=True, source='local')
-swin_model = SwinTransformer('swin_large_384', num_classes=1000, include_top=False, pretrained=True)
+yolov5x6_model = torch.hub.load(
+    'yolov5', 'yolov5x6', pretrained=True, source='local')
+swin_model = SwinTransformer(
+    'swin_large_384', num_classes=1000, include_top=False, pretrained=True)
+
 
 def get_image_info(file_path, i):
     image = cv2.imread(file_path)
@@ -538,6 +542,7 @@ def render_target(target):
     length = len(result)
     return np.concatenate([np.array(result), np.zeros((max_length - length,))])
 
+
 loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=False)
 
 predict_scores = []
@@ -558,8 +563,9 @@ with tqdm(total=len(test.index)) as pbar:
             else:
                 feature = extract_feature(image)
                 features.append(feature)
-            
-            file_path_new = file_path.replace('train', 'feature_full_large_new').replace('.jpg', '')
+
+            file_path_new = file_path.replace(
+                'train', 'feature_full_large_new').replace('.jpg', '')
             if not os.path.isdir(f'{file_path_new}_{i}'):
                 os.makedirs(f'{file_path_new}_{i}')
             for idx, feature in enumerate(features):

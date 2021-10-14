@@ -3,35 +3,27 @@ import numpy as np
 import pandas as pd
 
 from sklearn.model_selection import KFold
-from sklearn.model_selection import train_test_split
 
 import tensorflow as tf
 import tensorflow_addons as tfa
 
-from model_combine import PetNetTiny, PetNetTinyGRU, PetNetTinyNew
+from model_combine import PetNetTinyGRU
 from tf_data_feature import get_feature, sequence_generator
 
 physical_devices = tf.config.list_physical_devices('GPU')
 try:
-  tf.config.experimental.set_memory_growth(physical_devices[0], True)
+    tf.config.experimental.set_memory_growth(physical_devices[0], True)
 except:
-  pass
+    pass
 
 data = pd.read_csv('petfinder-pawpularity-score/train_yolo.csv')
 length = len(data.index)
 indexes = np.array(range(length))
 
-# train_indexes, test_indexes, _, _ = train_test_split(
-#     indexes, indexes, test_size=0.1, random_state=42)
 FEATURE_SIZE = 1536
 batch_size = 256
+d_model = 128
 
-num_layers = 2
-d_model = 64
-num_heads = 4
-dff = 64
-rate = 0.2
-alpha = 1
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     def __init__(self, d_model, warmup_steps=4000):
@@ -48,29 +40,15 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
         return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
 
-# optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.9, beta_2=0.98,
-#                                      epsilon=1e-9)
 
-# loss_object = tf.keras.losses.MeanSquaredError()
 loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=False)
-loss_object_class = tf.keras.losses.SparseCategoricalCrossentropy(
-    from_logits=True)
 
 train_loss = tf.keras.metrics.Mean(name='train_loss')
 train_accuracy = tf.keras.metrics.RootMeanSquaredError(name='train_accuracy')
-train_accuracy_class = tf.keras.metrics.SparseCategoricalAccuracy(
-    name='train_accuracy_class')
 
 test_loss = tf.keras.metrics.Mean(name='test_loss')
 test_accuracy = tf.keras.metrics.RootMeanSquaredError(name='test_accuracy')
-test_accuracy_class = tf.keras.metrics.SparseCategoricalAccuracy(
-    name='test_accuracy_class')
 
-# checkpoint_dir = './training_checkpoints'
-# checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
-# checkpoint = tf.train.Checkpoint(optimizer=optimizer,
-#                                  encoder=encoder,
-#                                  decoder=decoder)
 
 def mixup(data, indexes, x, y, fixed_length, alpha: 1.0):
     lam = np.random.beta(alpha, alpha)
@@ -83,8 +61,8 @@ def mixup(data, indexes, x, y, fixed_length, alpha: 1.0):
     for idx, (file_path, pawscore) in enumerate(zip(data['file_path'], data['Pawpularity'])):
         index = random.randint(0, 19)
         file_path = file_path.replace(
-                'train', 'feature_full_large_new').replace('.jpg', '')
-        features_new, _, _, _, _, real_score_new, fixed_length_new, _ = get_feature(
+            'train', 'feature_full_large_new').replace('.jpg', '')
+        features_new, _, _, real_score_new, fixed_length_new, _ = get_feature(
             f'{file_path}_{index}', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, pawscore)
         feature_batch[idx] = features_new
         real_score_batch[idx] = real_score_new
@@ -94,17 +72,18 @@ def mixup(data, indexes, x, y, fixed_length, alpha: 1.0):
     target_a, target_b = y, real_score_batch
     return mixed_x, target_a, target_b, lam, np.concatenate([fixed_length_batch, fixed_length], 0)
 
+
 def drop_data(features, lengths, target, length_targets):
     max_length = int(np.max(lengths))
     max_length_target = int(np.max(length_targets))
     return features[:, :max_length, :], target[:, :max_length_target]
 
-# @tf.function
-def train_step(inp, target, length, target_length, score, real_score, real_score_lam, lam):
+
+def train_step(inp, target, real_score, real_score_lam, lam):
     with tf.GradientTape() as tape:
-        # class_ouput, enc_output = encoder(inp, target, length, target_length, True)
-        enc_output = encoder(inp, target, length)
-        loss = loss_object(real_score, enc_output) * lam + loss_object(real_score_lam, enc_output) * (1 - lam)
+        enc_output = encoder(inp, target)
+        loss = loss_object(real_score, enc_output) * lam + \
+            loss_object(real_score_lam, enc_output) * (1 - lam)
 
     gradients = tape.gradient(loss, encoder.trainable_variables)
     optimizer.apply_gradients(zip(gradients, encoder.trainable_variables))
@@ -112,10 +91,10 @@ def train_step(inp, target, length, target_length, score, real_score, real_score
     train_loss(loss)
     train_accuracy(real_score, enc_output)
 
-def train_step_mini(inp, target, length, target_length, score, real_score):
+
+def train_step_mini(inp, target, real_score):
     with tf.GradientTape() as tape:
-        # class_ouput, enc_output = encoder(inp, target, length, target_length, True)
-        enc_output = encoder(inp, target, length)
+        enc_output = encoder(inp, target)
         loss = loss_object(real_score, enc_output)
 
     gradients = tape.gradient(loss, encoder.trainable_variables)
@@ -124,23 +103,14 @@ def train_step_mini(inp, target, length, target_length, score, real_score):
     train_loss(loss)
     train_accuracy(real_score, enc_output)
 
-# @tf.function
-def test_step(inp, target, length, target_length, score, real_score):
 
-    # class_ouput, enc_output = encoder(inp, target, length, target_length, False)
-    enc_output = encoder(inp, target, length)
+def test_step(inp, target, real_score):
+
+    enc_output = encoder(inp, target)
     loss = loss_object(real_score, enc_output)
 
     test_loss(loss)
     test_accuracy(real_score, enc_output)
-
-
-def evaluate_step(inp, target, length, real_score):
-
-    _, enc_output = encoder(inp, target, length, False)
-
-    for pre, real in zip(enc_output, real_score):
-        print(pre * 100, real * 100)
 
 
 EPOCHS = 10
@@ -163,33 +133,33 @@ for train_indexes, test_indexes in kf.split(indexes):
     min_train_acc = float('inf')
     min_test_acc = float('inf')
 
-    learning_rate = CustomSchedule(d_model)
+    learning_rate = CustomSchedule(d_model / 2)
     optimizer = tfa.optimizers.RectifiedAdam(learning_rate, beta_1=0.9, beta_2=0.98,
-                                            epsilon=1e-9)
-    # encoder = PetNetTinyNew(num_layers, d_model, num_heads, dff, rate)
-    encoder = PetNetTinyGRU(d_model, dff, dff)
+                                             epsilon=1e-9)
+    encoder = PetNetTinyGRU(d_model)
 
     for epoch in range(EPOCHS):
         train_loss.reset_states()
         test_loss.reset_states()
         train_accuracy.reset_states()
         test_accuracy.reset_states()
-        train_accuracy_class.reset_states()
-        test_accuracy_class.reset_states()
 
-        for _, features, target, length, target_length, score, real_score, fixed_length, fixed_length_target in sequence_generator(data, train_indexes, batch_size, False):
-            length = length.astype(np.bool_)
+        for _, features, target, _, real_score, fixed_length, fixed_length_target in sequence_generator(data, train_indexes, batch_size, False):
             if np.random.rand(1)[0] < 0.5:
-                features, real_score, real_score_lam, lam, fixed_length = mixup(data, train_indexes, features, real_score, fixed_length, 0.5)
-                features, target = drop_data(features, fixed_length, target, fixed_length_target)
-                train_step(features, target, length, target_length, score, real_score, real_score_lam, lam)
+                features, real_score, real_score_lam, lam, fixed_length = mixup(
+                    data, train_indexes, features, real_score, fixed_length, 0.5)
+                features, target = drop_data(
+                    features, fixed_length, target, fixed_length_target)
+                train_step(features, target, real_score, real_score_lam, lam)
             else:
-                features, target = drop_data(features, fixed_length, target, fixed_length_target)
-                train_step_mini(features, target, length, target_length, score, real_score)
-        for _, features, target, length, target_length, score, real_score, fixed_length, fixed_length_target in sequence_generator(data, test_indexes, batch_size, True):
-            length = length.astype(np.bool_)
-            features, target = drop_data(features, fixed_length, target, fixed_length_target)
-            test_step(features, target, length, target_length, score, real_score)
+                features, target = drop_data(
+                    features, fixed_length, target, fixed_length_target)
+                train_step_mini(features, target, real_score)
+
+        for _, features, target, _, real_score, fixed_length, fixed_length_target in sequence_generator(data, test_indexes, batch_size, True):
+            features, target = drop_data(
+                features, fixed_length, target, fixed_length_target)
+            test_step(features, target, real_score)
 
         if test_loss.result() < min_test_loss:
             min_train_loss = train_loss.result()
@@ -203,8 +173,6 @@ for train_indexes, test_indexes in kf.split(indexes):
             f'Test Loss: {test_loss.result()}, '
             f'Train Acc: {train_accuracy.result()}, '
             f'Test Acc: {test_accuracy.result()}, '
-            f'Train Acc Class: {train_accuracy_class.result()}, '
-            f'Test Acc Class: {test_accuracy_class.result()}, '
         )
 
     train_losses.append(min_train_loss)
