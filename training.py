@@ -113,7 +113,7 @@ def test_step(inp, target, real_score):
     test_accuracy(real_score, enc_output)
 
 
-EPOCHS = 10
+EPOCHS = 20
 
 kf = KFold(n_splits=5, random_state=None, shuffle=False)
 
@@ -167,13 +167,13 @@ for train_indexes, test_indexes in kf.split(indexes):
             min_train_acc = train_accuracy.result()
             min_test_acc = test_accuracy.result()
 
-        print(
-            f'Epoch {epoch + 1}, '
-            f'Train Loss: {train_loss.result()}, '
-            f'Test Loss: {test_loss.result()}, '
-            f'Train Acc: {train_accuracy.result()}, '
-            f'Test Acc: {test_accuracy.result()}, '
-        )
+        # print(
+        #     f'Epoch {epoch + 1}, '
+        #     f'Train Loss: {train_loss.result()}, '
+        #     f'Test Loss: {test_loss.result()}, '
+        #     f'Train Acc: {train_accuracy.result()}, '
+        #     f'Test Acc: {test_accuracy.result()}, '
+        # )
 
     train_losses.append(min_train_loss)
     test_losses.append(min_test_loss)
@@ -184,9 +184,9 @@ for train_indexes, test_indexes in kf.split(indexes):
 
     break
 
-# print(
-#     f'Train Loss: {np.mean(train_losses)}, '
-#     f'Test Loss: {np.mean(test_losses)}, '
-#     f'Train Acc: {np.mean(train_accs)}, '
-#     f'Test Acc: {np.mean(test_accs)}, '
-# )
+print(
+    f'Train Loss: {np.mean(train_losses)}, '
+    f'Test Loss: {np.mean(test_losses)}, '
+    f'Train Acc: {np.mean(train_accs)}, '
+    f'Test Acc: {np.mean(test_accs)}, '
+)
