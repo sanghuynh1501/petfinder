@@ -1,4 +1,6 @@
+import csv
 import random
+import cv2
 import numpy as np
 import pandas as pd
 
@@ -6,6 +8,8 @@ from sklearn.model_selection import KFold
 
 import tensorflow as tf
 import tensorflow_addons as tfa
+import torch
+from tqdm.std import tqdm
 
 from model_combine import PetNetTinyGRU
 from tf_data_feature import get_feature, sequence_generator
@@ -16,7 +20,12 @@ try:
 except:
     pass
 
-data = pd.read_csv('petfinder-pawpularity-score/train_yolo.csv')
+def get_image_file_path(image_id):
+    return f'petfinder-pawpularity-score/train/{image_id}.jpg'
+
+data = pd.read_csv('petfinder-pawpularity-score/train.csv')
+data['file_path'] = data['Id'].apply(get_image_file_path)
+
 length = len(data.index)
 indexes = np.array(range(length))
 
@@ -50,20 +59,18 @@ test_loss = tf.keras.metrics.Mean(name='test_loss')
 test_accuracy = tf.keras.metrics.RootMeanSquaredError(name='test_accuracy')
 
 
-def mixup(data, indexes, x, y, fixed_length, alpha: 1.0):
+def mixup(data, x, y, fixed_length, alpha: 1.0):
     lam = np.random.beta(alpha, alpha)
-    rand_indexes = random.sample(range(0, len(indexes)), batch_size)
-    data = data.iloc[rand_indexes, :]
+    rand_indexes = random.sample(range(0, len(data.index)), batch_size)
+    data_new = data.iloc[rand_indexes, :]
     feature_batch = np.zeros((batch_size, 14, FEATURE_SIZE), np.float32)
     real_score_batch = np.zeros((batch_size, 1))
     fixed_length_batch = np.zeros((batch_size,))
 
-    for idx, (file_path, pawscore) in enumerate(zip(data['file_path'], data['Pawpularity'])):
-        index = random.randint(0, 19)
+    for idx, (file_path, pawscore) in enumerate(zip(data_new['file_path'], data_new['Pawpularity'])):
         file_path = file_path.replace(
-            'train', 'feature_full_large_new').replace('.jpg', '')
-        features_new, _, _, real_score_new, fixed_length_new, _ = get_feature(
-            f'{file_path}_{index}', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, pawscore)
+            'train', 'feature_origin').replace('.jpg', '')
+        features_new, _, _, real_score_new, fixed_length_new, _ = get_feature(file_path, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, pawscore, False)
         feature_batch[idx] = features_new
         real_score_batch[idx] = real_score_new
         fixed_length_batch[idx] = fixed_length_new
@@ -81,7 +88,7 @@ def drop_data(features, lengths, target, length_targets):
 
 def train_step(inp, target, real_score, real_score_lam, lam):
     with tf.GradientTape() as tape:
-        enc_output = encoder(inp, target)
+        enc_output = encoder(inp, target, True)
         loss = loss_object(real_score, enc_output) * lam + \
             loss_object(real_score_lam, enc_output) * (1 - lam)
 
@@ -94,7 +101,7 @@ def train_step(inp, target, real_score, real_score_lam, lam):
 
 def train_step_mini(inp, target, real_score):
     with tf.GradientTape() as tape:
-        enc_output = encoder(inp, target)
+        enc_output = encoder(inp, target, True)
         loss = loss_object(real_score, enc_output)
 
     gradients = tape.gradient(loss, encoder.trainable_variables)
@@ -106,14 +113,14 @@ def train_step_mini(inp, target, real_score):
 
 def test_step(inp, target, real_score):
 
-    enc_output = encoder(inp, target)
+    enc_output = encoder(inp, target, False)
     loss = loss_object(real_score, enc_output)
 
     test_loss(loss)
     test_accuracy(real_score, enc_output)
 
 
-EPOCHS = 20
+EPOCHS = 5
 
 kf = KFold(n_splits=5, random_state=None, shuffle=False)
 
@@ -133,10 +140,28 @@ for train_indexes, test_indexes in kf.split(indexes):
     min_train_acc = float('inf')
     min_test_acc = float('inf')
 
-    learning_rate = CustomSchedule(d_model / 2)
-    optimizer = tfa.optimizers.RectifiedAdam(learning_rate, beta_1=0.9, beta_2=0.98,
+    # learning_rate = CustomSchedule(d_model / 2)
+    optimizer = tfa.optimizers.RectifiedAdam(0.001, beta_1=0.9, beta_2=0.98,
                                              epsilon=1e-9)
     encoder = PetNetTinyGRU(d_model)
+
+    random.shuffle(train_indexes)
+    random.shuffle(test_indexes)
+
+    train_data = data.iloc[train_indexes, :]
+    test_data = data.iloc[test_indexes, :]
+
+    checkpoint_path = "checkpoints/petnet_checkpoint"
+
+    ckpt = tf.train.Checkpoint(encoder=encoder)
+
+    ckpt_manager = tf.train.CheckpointManager(
+        ckpt, checkpoint_path, max_to_keep=5)
+
+    # # if a checkpoint exists, restore the latest checkpoint.
+    # if ckpt_manager.latest_checkpoint:
+    #     ckpt.restore(ckpt_manager.latest_checkpoint)
+    #     print('Latest checkpoint restored!!')
 
     for epoch in range(EPOCHS):
         train_loss.reset_states()
@@ -144,10 +169,10 @@ for train_indexes, test_indexes in kf.split(indexes):
         train_accuracy.reset_states()
         test_accuracy.reset_states()
 
-        for _, features, target, _, real_score, fixed_length, fixed_length_target in sequence_generator(data, train_indexes, batch_size, False):
+        for _, features, target, _, real_score, fixed_length, fixed_length_target in sequence_generator(train_data, batch_size, False):
             if np.random.rand(1)[0] < 0.5:
                 features, real_score, real_score_lam, lam, fixed_length = mixup(
-                    data, train_indexes, features, real_score, fixed_length, 0.5)
+                    train_data, features, real_score, fixed_length, 0.6)
                 features, target = drop_data(
                     features, fixed_length, target, fixed_length_target)
                 train_step(features, target, real_score, real_score_lam, lam)
@@ -156,7 +181,7 @@ for train_indexes, test_indexes in kf.split(indexes):
                     features, fixed_length, target, fixed_length_target)
                 train_step_mini(features, target, real_score)
 
-        for _, features, target, _, real_score, fixed_length, fixed_length_target in sequence_generator(data, test_indexes, batch_size, True):
+        for _, features, target, _, real_score, fixed_length, fixed_length_target in sequence_generator(test_data, batch_size, True):
             features, target = drop_data(
                 features, fixed_length, target, fixed_length_target)
             test_step(features, target, real_score)
@@ -166,6 +191,8 @@ for train_indexes, test_indexes in kf.split(indexes):
             min_test_loss = test_loss.result()
             min_train_acc = train_accuracy.result()
             min_test_acc = test_accuracy.result()
+            # ckpt_manager.save()
+            # print('save checkpoint!!')
 
         # print(
         #     f'Epoch {epoch + 1}, '
@@ -181,8 +208,6 @@ for train_indexes, test_indexes in kf.split(indexes):
     test_accs.append(min_test_acc)
 
     idx += 1
-
-    break
 
 print(
     f'Train Loss: {np.mean(train_losses)}, '

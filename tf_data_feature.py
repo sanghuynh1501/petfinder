@@ -17,11 +17,12 @@ def score2class(score):
     return score / 10
 
 
-def get_feature(file_path_new, focus, eyes, face, near, action, accessory, group, collage, human, occlusion, info, blur, pawscore):
+def get_feature(file_path_new, focus, eyes, face, near, action, accessory, group, collage, human, occlusion, info, blur, pawscore, isTest):
     features_new = np.zeros((14, FEATURE_SIZE))
     length_new = np.ones((14,))
     folder = os.listdir(file_path_new)
-    random.shuffle(folder)
+    if not isTest:
+        random.shuffle(folder)
     for ord, feature_link in enumerate(folder):
         feature = np.load(f'{file_path_new}/{feature_link}')
         features_new[ord] = feature[0]
@@ -74,10 +75,7 @@ def get_link_item(batch, indices):
     return result
 
 
-def sequence_generator(data, indexes, batch_size, isTest=False):
-    random.shuffle(indexes)
-    data = data.iloc[indexes, :]
-
+def sequence_generator(data, batch_size, isTest=False):
     link_batch = generate_link_batch(batch_size)
     feature_batch = np.zeros((batch_size, 14, FEATURE_SIZE), np.float32)
     target_batch = np.zeros((batch_size, 12))
@@ -88,7 +86,7 @@ def sequence_generator(data, indexes, batch_size, isTest=False):
 
     count = 0
 
-    with tqdm(total=len(indexes)) as pbar:
+    with tqdm(total=len(data.index)) as pbar:
         for file_path,\
             focus,\
             eyes,\
@@ -122,7 +120,7 @@ def sequence_generator(data, indexes, batch_size, isTest=False):
                     'train_crop_large', 'feature_full_large_new')
 
                 features_new, target_new, pawscore_new, real_score_new, fixed_length_new, fixed_length_target_new = get_feature(
-                    file_path_new, focus, eyes, face, near, action, accessory, group, collage, human, occlusion, info, blur, pawscore)
+                    file_path_new, focus, eyes, face, near, action, accessory, group, collage, human, occlusion, info, blur, pawscore, isTest)
 
                 if count >= batch_size:
                     yield shuffle_data(link_batch, feature_batch.astype(np.float32), target_batch.astype(np.int32), score_batch.astype(np.int32), real_score_batch.astype(np.float32), fixed_length_batch, fixed_length_target_batch)
