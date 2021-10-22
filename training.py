@@ -1,3 +1,4 @@
+import os
 import csv
 import random
 import cv2
@@ -21,18 +22,58 @@ except:
     pass
 
 def get_image_file_path(image_id):
-    return f'petfinder-pawpularity-score/train/{image_id}.jpg'
+    return f'petfinder-pawpularity-score/feature_full_large_new/{image_id}'
 
-data = pd.read_csv('petfinder-pawpularity-score/train.csv')
-data['file_path'] = data['Id'].apply(get_image_file_path)
+data_origin = pd.read_csv('petfinder-pawpularity-score/train.csv')
+data_origin['file_path'] = data_origin['Id'].apply(get_image_file_path)
 
-length = len(data.index)
-indexes = np.array(range(length))
+length = len(data_origin.index)
+# indexes = []
+
+# for idx, file_path in enumerate(data_origin['file_path']):
+#     if len(os.listdir(f'{file_path}_0')) == 1:
+#         indexes.append(idx)
+
+data = []
+for file_path,\
+    eyes,\
+    face,\
+    near,\
+    accessory,\
+    group,\
+    human,\
+    occlusion,\
+    info,\
+    blur,\
+    pawscore in zip(data_origin['file_path'],
+                    data_origin['Eyes'], data_origin['Face'],
+                    data_origin['Near'],
+                    data_origin['Accessory'], data_origin['Group'],
+                    data_origin['Human'],
+                    data_origin['Occlusion'], data_origin['Info'],
+                    data_origin['Blur'], data_origin['Pawpularity']):
+        for i in range(3):
+            data.append(
+                {
+                    'file_path':file_path + f'_{i}', 
+                    'eyes': eyes,
+                    'face': face,
+                    'near': near,
+                    'accessory': accessory,
+                    'group': group,
+                    'human': human,
+                    'occlusion': occlusion,
+                    'info': info,
+                    'blur': blur,
+                    'pawscore': pawscore 
+                }
+            )
+
+indexes = range(len(data))
 
 FEATURE_SIZE = 1536
 batch_size = 256
-d_model = 128
-
+d_model = 32
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     def __init__(self, d_model, warmup_steps=4000):
@@ -51,6 +92,7 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
 
 loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=False)
+# loss_object = tf.keras.losses.MeanSquaredError()
 
 train_loss = tf.keras.metrics.Mean(name='train_loss')
 train_accuracy = tf.keras.metrics.RootMeanSquaredError(name='train_accuracy')
@@ -59,36 +101,56 @@ test_loss = tf.keras.metrics.Mean(name='test_loss')
 test_accuracy = tf.keras.metrics.RootMeanSquaredError(name='test_accuracy')
 
 
-def mixup(data, x, y, fixed_length, alpha: 1.0):
+def mixup(data, x, ex, tx, y, alpha: 1.0):
     lam = np.random.beta(alpha, alpha)
-    rand_indexes = random.sample(range(0, len(data.index)), batch_size)
-    data_new = data.iloc[rand_indexes, :]
-    feature_batch = np.zeros((batch_size, 14, FEATURE_SIZE), np.float32)
+    rand_indexes = random.sample(range(0, len(data)), batch_size)
+    data_new = [data[i] for i in rand_indexes]
+    feature_batch = np.zeros((batch_size, FEATURE_SIZE), np.float32)
+    efeature_batch = np.zeros((batch_size, 12,12,1280), np.float32)
+    target_batch = np.zeros((batch_size, 9), np.float32)
     real_score_batch = np.zeros((batch_size, 1))
-    fixed_length_batch = np.zeros((batch_size,))
 
-    for idx, (file_path, pawscore) in enumerate(zip(data_new['file_path'], data_new['Pawpularity'])):
-        file_path = file_path.replace(
-            'train', 'feature_origin').replace('.jpg', '')
-        features_new, _, _, real_score_new, fixed_length_new, _ = get_feature(file_path, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, pawscore, False)
+    for idx, item in enumerate(data_new):
+        file_path,\
+        eyes,\
+        face,\
+        near,\
+        accessory,\
+        group,\
+        human,\
+        occlusion,\
+        info,\
+        blur,\
+        pawscore = item['file_path'],\
+            item['eyes'],\
+            item['face'],\
+            item['near'],\
+            item['accessory'], item['group'],\
+            item['human'],\
+            item['occlusion'], item['info'],\
+            item['blur'], item['pawscore']
+        features_new, efeatures_new, target_new, real_score_new = get_feature(
+            file_path, eyes, face, near, accessory, group, human, occlusion, info, blur, pawscore)
         feature_batch[idx] = features_new
+        efeature_batch[idx] = efeatures_new
+        target_batch[idx] = target_new
         real_score_batch[idx] = real_score_new
-        fixed_length_batch[idx] = fixed_length_new
 
     mixed_x = lam * x + (1 - lam) * feature_batch
+    mixed_ex = lam * ex + (1 - lam) * efeature_batch
+    mixed_tx = lam * tx + (1 - lam) * target_batch
     target_a, target_b = y, real_score_batch
-    return mixed_x, target_a, target_b, lam, np.concatenate([fixed_length_batch, fixed_length], 0)
+    return mixed_x, mixed_ex, mixed_tx, target_a, target_b, lam
 
 
-def drop_data(features, lengths, target, length_targets):
-    max_length = int(np.max(lengths))
+def drop_data(target, length_targets):
     max_length_target = int(np.max(length_targets))
-    return features[:, :max_length, :], target[:, :max_length_target]
+    return target[:, :max_length_target]
 
 
-def train_step(inp, target, real_score, real_score_lam, lam):
+def train_step(inp, einp, target, real_score, real_score_lam, lam):
     with tf.GradientTape() as tape:
-        enc_output = encoder(inp, target, True)
+        enc_output = encoder(inp, einp, target, True)
         loss = loss_object(real_score, enc_output) * lam + \
             loss_object(real_score_lam, enc_output) * (1 - lam)
 
@@ -99,9 +161,9 @@ def train_step(inp, target, real_score, real_score_lam, lam):
     train_accuracy(real_score, enc_output)
 
 
-def train_step_mini(inp, target, real_score):
+def train_step_mini(inp, einput, target, real_score):
     with tf.GradientTape() as tape:
-        enc_output = encoder(inp, target, True)
+        enc_output = encoder(inp, einput, target, True)
         loss = loss_object(real_score, enc_output)
 
     gradients = tape.gradient(loss, encoder.trainable_variables)
@@ -111,9 +173,9 @@ def train_step_mini(inp, target, real_score):
     train_accuracy(real_score, enc_output)
 
 
-def test_step(inp, target, real_score):
+def test_step(inp, einput, target, real_score):
 
-    enc_output = encoder(inp, target, False)
+    enc_output = encoder(inp, einput, target, False)
     loss = loss_object(real_score, enc_output)
 
     test_loss(loss)
@@ -148,8 +210,8 @@ for train_indexes, test_indexes in kf.split(indexes):
     random.shuffle(train_indexes)
     random.shuffle(test_indexes)
 
-    train_data = data.iloc[train_indexes, :]
-    test_data = data.iloc[test_indexes, :]
+    train_data = [data[i] for i in train_indexes]
+    test_data = [data[i] for i in test_indexes]
 
     checkpoint_path = "checkpoints/petnet_checkpoint"
 
@@ -169,22 +231,16 @@ for train_indexes, test_indexes in kf.split(indexes):
         train_accuracy.reset_states()
         test_accuracy.reset_states()
 
-        for _, features, target, _, real_score, fixed_length, fixed_length_target in sequence_generator(train_data, batch_size, False):
+        for _, features, efeatures, target, real_score in sequence_generator(train_data, batch_size, False):
             if np.random.rand(1)[0] < 0.5:
-                features, real_score, real_score_lam, lam, fixed_length = mixup(
-                    train_data, features, real_score, fixed_length, 0.6)
-                features, target = drop_data(
-                    features, fixed_length, target, fixed_length_target)
-                train_step(features, target, real_score, real_score_lam, lam)
+                features, efeatures, target, real_score, real_score_lam, lam = mixup(
+                    train_data, features, efeatures, target, real_score, 0.5)
+                train_step(features, efeatures, target, real_score, real_score_lam, lam)
             else:
-                features, target = drop_data(
-                    features, fixed_length, target, fixed_length_target)
-                train_step_mini(features, target, real_score)
+                train_step_mini(features, efeatures, target, real_score)
 
-        for _, features, target, _, real_score, fixed_length, fixed_length_target in sequence_generator(test_data, batch_size, True):
-            features, target = drop_data(
-                features, fixed_length, target, fixed_length_target)
-            test_step(features, target, real_score)
+        for _, features, efeatures, target, real_score in sequence_generator(test_data, batch_size, True):
+            test_step(features, efeatures, target, real_score)
 
         if test_loss.result() < min_test_loss:
             min_train_loss = train_loss.result()
@@ -194,13 +250,13 @@ for train_indexes, test_indexes in kf.split(indexes):
             # ckpt_manager.save()
             # print('save checkpoint!!')
 
-        # print(
-        #     f'Epoch {epoch + 1}, '
-        #     f'Train Loss: {train_loss.result()}, '
-        #     f'Test Loss: {test_loss.result()}, '
-        #     f'Train Acc: {train_accuracy.result()}, '
-        #     f'Test Acc: {test_accuracy.result()}, '
-        # )
+        print(
+            f'Epoch {epoch + 1}, '
+            f'Train Loss: {train_loss.result()}, '
+            f'Test Loss: {test_loss.result()}, '
+            f'Train Acc: {train_accuracy.result()}, '
+            f'Test Acc: {test_accuracy.result()}, '
+        )
 
     train_losses.append(min_train_loss)
     test_losses.append(min_test_loss)

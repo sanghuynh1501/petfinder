@@ -493,11 +493,19 @@ yolov5x6_model = torch.hub.load(
     'yolov5', 'yolov5x6', pretrained=True, source='local')
 swin_model = SwinTransformer(
     'swin_large_384', num_classes=1000, include_top=False, pretrained=True)
-
+efficient = tf.keras.applications.EfficientNetB0(
+    include_top=False,
+    weights="imagenet",
+    input_tensor=None,
+    input_shape=None,
+    pooling=None,
+    classes=1000,
+    classifier_activation="softmax",
+)
 
 def get_image_info(file_path, i):
     image = cv2.imread(file_path)
-    if i < 6:
+    if i < 1:
         au_image = image
     else:
         image = np.expand_dims(image, 0)
@@ -505,7 +513,7 @@ def get_image_info(file_path, i):
             iaa.Crop(px=(10, 50)),
             iaa.Affine(rotate=(-10, 10)),
             iaa.Fliplr(0.5),
-            iaa.Flipud(0.5)
+            iaa.MultiplyAndAddToBrightness(mul=(0.9, 1.1), add=(-30, 30))
         ])
         au_image = seq(images=image)
         au_image = au_image[0]
@@ -532,6 +540,15 @@ def extract_feature(image):
     feature = swin_model(image)
     return feature
 
+def extract_feature_efficient(image):
+    image = cv2.resize(image, (IMAGE_SIZE, IMAGE_SIZE))
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = image.astype(np.float32)
+    image = tf.keras.applications.efficientnet.preprocess_input(image)
+    image = np.expand_dims(image, 0)
+    feature = efficient(image)
+    return feature
+
 
 def render_target(target):
     result = []
@@ -550,19 +567,35 @@ real_scores = []
 
 with tqdm(total=len(test.index)) as pbar:
     for file_path in test['file_path']:
-        for i in range(20):
+        for i in range(3):
             image, coords = get_image_info(file_path, i)
 
             features = []
             if len(coords) > 0:
+                coord_1_min = float('inf')
+                coord_3_max = 0
+                coord_0_min = float('inf')
+                coord_2_max = 0
                 for ord, coord in enumerate(coords):
                     coord = [round(float(cord)) for cord in coord]
-                    new_image = image[coord[1]:coord[3], coord[0]:coord[2]]
-                    feature = extract_feature(new_image)
-                    features.append(feature)
+                    if coord[1] < coord_1_min:
+                        coord_1_min = coord[1]
+                    if coord[3] > coord_3_max:
+                        coord_3_max = coord[3]
+                    if coord[0] < coord_0_min:
+                        coord_0_min = coord[0]
+                    if coord[2] > coord_2_max:
+                        coord_2_max = coord[2]
+                new_image = image[coord_1_min:coord_3_max, coord_0_min:coord_2_max]
+                feature = extract_feature(new_image)
+                efeature = extract_feature_efficient(new_image)
+                features.append(feature)
+                features.append(efeature)
             else:
                 feature = extract_feature(image)
+                efeature = extract_feature_efficient(image)
                 features.append(feature)
+                features.append(efeature)
 
             file_path_new = file_path.replace(
                 'train', 'feature_full_large_new').replace('.jpg', '')
