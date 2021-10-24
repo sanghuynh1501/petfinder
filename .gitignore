@@ -7,3 +7,6 @@ checkpoints
 swin_transformer_weight
 submission.csv
 archive
+efficientdet
+weights
+petfinder-adoption-prediction

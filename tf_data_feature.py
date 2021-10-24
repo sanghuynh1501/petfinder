@@ -60,9 +60,10 @@ def get_link_item(batch, indices):
 def sequence_generator(data, batch_size, isTest=False):
     link_batch = generate_link_batch(batch_size)
     feature_batch = np.zeros((batch_size, FEATURE_SIZE), np.float32)
-    efeature_batch = np.zeros((batch_size, 12,12,1280), np.float32)
+    efeature_batch = np.zeros((batch_size, 12,12,1792), np.float32)
     target_batch = np.zeros((batch_size, 9))
     real_score_batch = np.zeros((batch_size, 1))
+    
 
     count = 0
 
@@ -86,45 +87,27 @@ def sequence_generator(data, batch_size, isTest=False):
                     item['human'],\
                     item['occlusion'], item['info'],\
                     item['blur'], item['pawscore']
+            index = 0
             if not isTest:
-                features_new, efeatures_new, target_new, real_score_new = get_feature(
-                    file_path, eyes, face, near, accessory, group, human, occlusion, info, blur, pawscore)
-                feature_batch[count]= features_new
-                efeature_batch[count]= efeatures_new
-                target_batch[count]= target_new
-                link_batch[count]= file_path
-                real_score_batch[count]= real_score_new
-                count += 1
+                index = random.randint(0, 5)
+            file_path = f'{file_path}_{index}'
+            features_new, efeatures_new, target_new, real_score_new = get_feature(
+                file_path, eyes, face, near, accessory, group, human, occlusion, info, blur, pawscore)
+            feature_batch[count]= features_new
+            efeature_batch[count]= efeatures_new
+            target_batch[count]= target_new
+            link_batch[count]= file_path
+            real_score_batch[count]= real_score_new
+            count += 1
 
-                if count >= batch_size:
-                    yield shuffle_data(link_batch, feature_batch.astype(np.float32), efeature_batch.astype(np.float32), target_batch.astype(np.int32), real_score_batch.astype(np.float32))
-                    feature_batch= np.zeros((batch_size, FEATURE_SIZE))
-                    efeature_batch= np.zeros((batch_size, 12,12,1280))
-                    target_batch= np.zeros((batch_size, 9))
-                    real_score_batch= np.zeros((batch_size, 1))
-                    link_batch= generate_link_batch(batch_size)
-                    count = 0
-            else:
-                if '_0' in file_path:
-                    file_path_new=f'{file_path}'
-                    features_new, efeatures_new, target_new, real_score_new = get_feature(
-                        file_path_new, eyes, face, near, accessory, group, human, occlusion, info, blur, pawscore)
-
-                    feature_batch[count]= features_new
-                    efeature_batch[count]= efeatures_new
-                    target_batch[count]= target_new
-                    link_batch[count]= file_path
-                    real_score_batch[count]= real_score_new
-                    count += 1
-
-                    if count >= batch_size:
-                        yield shuffle_data(link_batch, feature_batch.astype(np.float32), efeature_batch.astype(np.float32), target_batch.astype(np.int32), real_score_batch.astype(np.float32))
-                        feature_batch= np.zeros((batch_size, FEATURE_SIZE))
-                        efeature_batch= np.zeros((batch_size, 12,12,1280))
-                        target_batch= np.zeros((batch_size, 9))
-                        real_score_batch= np.zeros((batch_size, 1))
-                        link_batch= generate_link_batch(batch_size)
-                        count = 0
+            if count >= batch_size:
+                yield shuffle_data(link_batch, feature_batch.astype(np.float32), efeature_batch.astype(np.float32), target_batch.astype(np.int32), real_score_batch.astype(np.float32))
+                feature_batch= np.zeros((batch_size, FEATURE_SIZE))
+                efeature_batch= np.zeros((batch_size, 12,12,1792))
+                target_batch= np.zeros((batch_size, 9))
+                real_score_batch= np.zeros((batch_size, 1))
+                link_batch= generate_link_batch(batch_size)
+                count = 0
 
             pbar.update(1)
 
@@ -135,7 +118,7 @@ if __name__ == "__main__":
     indexes= np.array(range(length))
 
     train_indexes, test_indexes, _, _= train_test_split(
-        indexes, indexes, test_size =0.2, random_state=42)
+        indexes, indexes, test_size = 0.2, random_state=42)
 
     for _, features, target, length, score, real_score in sequence_generator(data, train_indexes, 32):
         print(features.shape, target.shape, length.shape,

@@ -1,7 +1,4 @@
-import os
-import csv
 import random
-import cv2
 import numpy as np
 import pandas as pd
 
@@ -9,8 +6,6 @@ from sklearn.model_selection import KFold
 
 import tensorflow as tf
 import tensorflow_addons as tfa
-import torch
-from tqdm.std import tqdm
 
 from model_combine import PetNetTinyGRU
 from tf_data_feature import get_feature, sequence_generator
@@ -21,18 +16,17 @@ try:
 except:
     pass
 
+tf.random.set_seed(1234)
+np.random.seed(0)
+random.seed(10)
+
 def get_image_file_path(image_id):
-    return f'petfinder-pawpularity-score/feature_full_large_new/{image_id}'
+    return f'petfinder-pawpularity-score/feature_full_large_new_new/{image_id}'
 
 data_origin = pd.read_csv('petfinder-pawpularity-score/train.csv')
 data_origin['file_path'] = data_origin['Id'].apply(get_image_file_path)
 
 length = len(data_origin.index)
-# indexes = []
-
-# for idx, file_path in enumerate(data_origin['file_path']):
-#     if len(os.listdir(f'{file_path}_0')) == 1:
-#         indexes.append(idx)
 
 data = []
 for file_path,\
@@ -52,28 +46,27 @@ for file_path,\
                     data_origin['Human'],
                     data_origin['Occlusion'], data_origin['Info'],
                     data_origin['Blur'], data_origin['Pawpularity']):
-        for i in range(3):
-            data.append(
-                {
-                    'file_path':file_path + f'_{i}', 
-                    'eyes': eyes,
-                    'face': face,
-                    'near': near,
-                    'accessory': accessory,
-                    'group': group,
-                    'human': human,
-                    'occlusion': occlusion,
-                    'info': info,
-                    'blur': blur,
-                    'pawscore': pawscore 
-                }
-            )
+        data.append(
+            {
+                'file_path':file_path, 
+                'eyes': eyes,
+                'face': face,
+                'near': near,
+                'accessory': accessory,
+                'group': group,
+                'human': human,
+                'occlusion': occlusion,
+                'info': info,
+                'blur': blur,
+                'pawscore': pawscore 
+            }
+        )
 
 indexes = range(len(data))
 
 FEATURE_SIZE = 1536
-batch_size = 256
-d_model = 32
+batch_size = 128
+d_model = 128
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     def __init__(self, d_model, warmup_steps=4000):
@@ -91,8 +84,12 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
         return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
 
 
-loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=False)
-# loss_object = tf.keras.losses.MeanSquaredError()
+# loss_object = tf.keras.losses.BinaryCrossentropy(from_logits=False)
+loss_object = tf.keras.losses.MeanSquaredError()
+loss_objects = tf.keras.losses.MeanSquaredError(reduction=tf.keras.losses.Reduction.NONE)
+
+# def loss_object(y_true, y_pred):
+#     return (eloss_object(y_true, y_pred) + mloss_object(y_true, y_pred)) / 2
 
 train_loss = tf.keras.metrics.Mean(name='train_loss')
 train_accuracy = tf.keras.metrics.RootMeanSquaredError(name='train_accuracy')
@@ -106,7 +103,7 @@ def mixup(data, x, ex, tx, y, alpha: 1.0):
     rand_indexes = random.sample(range(0, len(data)), batch_size)
     data_new = [data[i] for i in rand_indexes]
     feature_batch = np.zeros((batch_size, FEATURE_SIZE), np.float32)
-    efeature_batch = np.zeros((batch_size, 12,12,1280), np.float32)
+    efeature_batch = np.zeros((batch_size, 12,12,1792), np.float32)
     target_batch = np.zeros((batch_size, 9), np.float32)
     real_score_batch = np.zeros((batch_size, 1))
 
@@ -129,6 +126,8 @@ def mixup(data, x, ex, tx, y, alpha: 1.0):
             item['human'],\
             item['occlusion'], item['info'],\
             item['blur'], item['pawscore']
+        index = random.randint(0, 5)
+        file_path = f'{file_path}_{index}'
         features_new, efeatures_new, target_new, real_score_new = get_feature(
             file_path, eyes, face, near, accessory, group, human, occlusion, info, blur, pawscore)
         feature_batch[idx] = features_new
@@ -177,14 +176,41 @@ def test_step(inp, einput, target, real_score):
 
     enc_output = encoder(inp, einput, target, False)
     loss = loss_object(real_score, enc_output)
+    # losses = loss_objects(real_score, enc_output)
+    # index = tf.math.argmax(losses)
+    # print('index index ', losses[index], links[index])
 
     test_loss(loss)
     test_accuracy(real_score, enc_output)
 
+def generate_data(data, isTest=False):
+    results = []
+    count = 6
+    if isTest:
+        count = 1
+    for item in data:
+        for i in range(count):
+            results.append(
+                {
+                    'file_path': item['file_path'] + f'_{i}', 
+                    'eyes': item['eyes'],
+                    'face': item['face'],
+                    'near': item['near'],
+                    'accessory': item['accessory'],
+                    'group': item['group'],
+                    'human': item['human'],
+                    'occlusion': item['occlusion'],
+                    'info': item['info'],
+                    'blur': item['blur'],
+                    'pawscore': item['pawscore'] 
+                }
+            )
+    random.shuffle(results)
+    return results
 
-EPOCHS = 5
+EPOCHS = 10
 
-kf = KFold(n_splits=5, random_state=None, shuffle=False)
+kf = KFold(n_splits=10, random_state=0, shuffle=True)
 
 train_losses = []
 test_losses = []
@@ -202,7 +228,6 @@ for train_indexes, test_indexes in kf.split(indexes):
     min_train_acc = float('inf')
     min_test_acc = float('inf')
 
-    # learning_rate = CustomSchedule(d_model / 2)
     optimizer = tfa.optimizers.RectifiedAdam(0.001, beta_1=0.9, beta_2=0.98,
                                              epsilon=1e-9)
     encoder = PetNetTinyGRU(d_model)
@@ -213,24 +238,19 @@ for train_indexes, test_indexes in kf.split(indexes):
     train_data = [data[i] for i in train_indexes]
     test_data = [data[i] for i in test_indexes]
 
-    checkpoint_path = "checkpoints/petnet_checkpoint"
+    checkpoint_path = f'checkpoints/petnet_checkpoint_{idx}'
 
     ckpt = tf.train.Checkpoint(encoder=encoder)
 
     ckpt_manager = tf.train.CheckpointManager(
         ckpt, checkpoint_path, max_to_keep=5)
 
-    # # if a checkpoint exists, restore the latest checkpoint.
-    # if ckpt_manager.latest_checkpoint:
-    #     ckpt.restore(ckpt_manager.latest_checkpoint)
-    #     print('Latest checkpoint restored!!')
-
     for epoch in range(EPOCHS):
         train_loss.reset_states()
         test_loss.reset_states()
         train_accuracy.reset_states()
         test_accuracy.reset_states()
-
+        
         for _, features, efeatures, target, real_score in sequence_generator(train_data, batch_size, False):
             if np.random.rand(1)[0] < 0.5:
                 features, efeatures, target, real_score, real_score_lam, lam = mixup(
@@ -247,8 +267,8 @@ for train_indexes, test_indexes in kf.split(indexes):
             min_test_loss = test_loss.result()
             min_train_acc = train_accuracy.result()
             min_test_acc = test_accuracy.result()
-            # ckpt_manager.save()
-            # print('save checkpoint!!')
+            ckpt_manager.save()
+            print('save checkpoint!!')
 
         print(
             f'Epoch {epoch + 1}, '
