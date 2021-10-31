@@ -6,8 +6,6 @@ import numpy as np
 from tqdm import tqdm
 import tensorflow as tf
 from imgaug import augmenters as iaa
-from efficientdet_crop import get_crop_info
-
 from swintransformer.model import SwinTransformer
 
 physical_devices = tf.config.list_physical_devices('GPU')
@@ -17,8 +15,8 @@ except:
     pass
 
 
-IMAGE_SIZE = 384
-EIMAGE_SIZE = 380
+IMAGE_SIZE = 224
+EIMAGE_SIZE = 224
 D_MODEL = 32
 DFF = 64
 
@@ -31,7 +29,7 @@ dtype = {
     'Pawpularity': np.uint8,
 }
 
-test = pd.read_csv('petfinder-pawpularity-score/train.csv', dtype=dtype)
+test = pd.read_csv('AdoptionSpeed.csv', dtype=dtype)
 
 
 def get_image_file_path(image_id):
@@ -41,10 +39,10 @@ def get_image_file_path(image_id):
 test['file_path'] = test['Id'].apply(get_image_file_path)
 
 yolov5x6_model = torch.hub.load(
-    'yolov5', 'yolov5x6', pretrained=True, source='local')
+    'ultralytics/yolov5', 'yolov5x6', pretrained=True)
 swin_model = SwinTransformer(
-    'swin_large_384', num_classes=1000, include_top=False, pretrained='swintransformer/swin_large_384')
-efficient = tf.keras.applications.EfficientNetB4(
+    'swin_large_224', num_classes=1000, include_top=False, pretrained='swintransformer/swin_large_224')
+efficient = tf.keras.applications.EfficientNetB0(
     include_top=False,
     weights="imagenet",
     input_tensor=None,
@@ -54,47 +52,40 @@ efficient = tf.keras.applications.EfficientNetB4(
     classifier_activation="softmax",
 )
 
-def get_image_info(file_path, i):
-    image = cv2.imread(file_path)
-    if i < 2:
-        au_image = image
-    else:
-        image = np.expand_dims(image, 0)
-        seq = iaa.Sequential([
-            iaa.Crop(px=(10, 50)),
-            iaa.Affine(rotate=(-10, 10)),
-            iaa.Fliplr(0.5),
-            iaa.MultiplyAndAddToBrightness(mul=(0.9, 1.1), add=(-30, 30))
-        ])
-        au_image = seq(images=image)
-        au_image = au_image[0]
 
-    results = yolov5x6_model(cv2.cvtColor(au_image, cv2.COLOR_BGR2RGB))
+def image_iaa(image):
+    image = np.expand_dims(image, 0)
+    seq = iaa.Sequential([
+        iaa.Crop(px=(10, 50)),
+        iaa.Affine(rotate=(-10, 10)),
+        iaa.Fliplr(0.5),
+        iaa.MultiplyAndAddToBrightness(mul=(0.9, 1.1), add=(-30, 30))
+    ])
+    au_image = seq(images=image)
+    au_image = au_image[0]
+
+    return au_image
+
+
+def get_image_info(file_path):
+    image = cv2.imread(file_path)
+
+    results = yolov5x6_model(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
 
     coords = []
-
-    for x1, y1, x2, y2, _, label in results.xyxy[0].cpu().detach().numpy():
+    max_score = 0
+    labels = []
+    all_coords = []
+    for x1, y1, x2, y2, score, label in results.xyxy[0].cpu().detach().numpy():
         label = results.names[int(label)]
-        if label in ['cat', 'dog']:
-            coords.append(tuple([x1, y1, x2, y2]))
+        if label in ['cat', 'dog', 'teddy bear', 'cow', 'horse', 'bear', 'bird', 'zebra']:
+            if score > max_score:
+                coords = [tuple([x1, y1, x2, y2])]
+                max_score = score
+        labels.append(label)
+        all_coords.append(tuple([x1, y1, x2, y2]))
 
-    return au_image, coords
-# def get_image_info(file_path, i):
-#     image = cv2.imread(file_path)
-#     if i < 2:
-#         au_image = image
-#     else:
-#         image = np.expand_dims(image, 0)
-#         seq = iaa.Sequential([
-#             iaa.Crop(px=(10, 50)),
-#             iaa.Affine(rotate=(-10, 10)),
-#             iaa.Fliplr(0.5),
-#             iaa.MultiplyAndAddToBrightness(mul=(0.9, 1.1), add=(-30, 30))
-#         ])
-#         au_image = seq(images=image)
-#         au_image = au_image[0]
-
-#     return get_crop_info(au_image)
+    return image, coords, labels, all_coords
 
 
 def extract_feature(image):
@@ -106,6 +97,7 @@ def extract_feature(image):
     image = np.expand_dims(image, 0)
     feature = swin_model(image)
     return feature
+
 
 def extract_feature_efficient(image):
     image = cv2.resize(image, (IMAGE_SIZE, IMAGE_SIZE))
@@ -134,16 +126,48 @@ real_scores = []
 
 with tqdm(total=len(test.index)) as pbar:
     for file_path in test['file_path']:
-        for i in range(6):
-            image, coords = get_image_info(file_path, i)
+        image, coords, labels, all_coords = get_image_info(file_path)
 
-            features = []
-            if len(coords) > 0:
+        if len(coords) > 0:
+            coord_1_min = float('inf')
+            coord_3_max = 0
+            coord_0_min = float('inf')
+            coord_2_max = 0
+            for ord, coord in enumerate(coords):
+                coord = [round(float(cord)) for cord in coord]
+                if coord[1] < coord_1_min:
+                    coord_1_min = coord[1]
+                if coord[3] > coord_3_max:
+                    coord_3_max = coord[3]
+                if coord[0] < coord_0_min:
+                    coord_0_min = coord[0]
+                if coord[2] > coord_2_max:
+                    coord_2_max = coord[2]
+            new_image = image[coord_1_min:coord_3_max,
+                              coord_0_min:coord_2_max]
+            for i in range(6):
+                if i >= 2:
+                    new_image = image_iaa(new_image)
+                features = []
+                feature = extract_feature(new_image)
+                efeature = extract_feature_efficient(new_image)
+                features.append(feature)
+                features.append(efeature)
+
+                file_path_new = file_path.replace(
+                    'train', 'feature_full_large_new_new').replace('.jpg', '')
+                if not os.path.isdir(f'{file_path_new}_{i}'):
+                    os.makedirs(f'{file_path_new}_{i}')
+                for idx, feature in enumerate(features):
+                    np.save(f'{file_path_new}_{i}/feature_{idx}.npy', feature)
+        else:
+            new_image = None
+            if len(all_coords):
                 coord_1_min = float('inf')
                 coord_3_max = 0
                 coord_0_min = float('inf')
                 coord_2_max = 0
-                for ord, coord in enumerate(coords):
+                for ord, coord in enumerate(all_coords):
                     coord = [round(float(cord)) for cord in coord]
                     if coord[1] < coord_1_min:
                         coord_1_min = coord[1]
@@ -153,21 +177,24 @@ with tqdm(total=len(test.index)) as pbar:
                         coord_0_min = coord[0]
                     if coord[2] > coord_2_max:
                         coord_2_max = coord[2]
-                new_image = image[coord_1_min:coord_3_max, coord_0_min:coord_2_max]
+                image = image[coord_1_min:coord_3_max,
+                              coord_0_min:coord_2_max]
+                new_image = image
+            else:
+                new_image = image
+            for i in range(6):
+                if i >= 2:
+                    new_image = image_iaa(new_image)
+                features = []
                 feature = extract_feature(new_image)
                 efeature = extract_feature_efficient(new_image)
                 features.append(feature)
                 features.append(efeature)
-            else:
-                feature = extract_feature(image)
-                efeature = extract_feature_efficient(image)
-                features.append(feature)
-                features.append(efeature)
 
-            file_path_new = file_path.replace(
-                'train', 'feature_full_large_new_new').replace('.jpg', '')
-            if not os.path.isdir(f'{file_path_new}_{i}'):
-                os.makedirs(f'{file_path_new}_{i}')
-            for idx, feature in enumerate(features):
-                np.save(f'{file_path_new}_{i}/feature_{idx}.npy', feature)
+                file_path_new = file_path.replace(
+                    'train', 'feature_full_large_new_new').replace('.jpg', '')
+                if not os.path.isdir(f'{file_path_new}_{i}'):
+                    os.makedirs(f'{file_path_new}_{i}')
+                for idx, feature in enumerate(features):
+                    np.save(f'{file_path_new}_{i}/feature_{idx}.npy', feature)
         pbar.update(1)

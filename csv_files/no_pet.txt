@@ -1,0 +1,16 @@
+petfinder-pawpularity-score/train/1ba539b66.jpg
+petfinder-pawpularity-score/train/fc537bc7f.jpg
+petfinder-pawpularity-score/train/dc76a1735.jpg
+petfinder-pawpularity-score/train/4ef5ab4394f363b8770323da06afbce5.jpg
+175750d5b21722b7451361df8852e374.jpg
+9, 
+
+case 1:
+1: 0.1643
+2: 0.1787
+3: 0.1748
+4: 0.1792
+5: 0.1865
+6: 0.175
+
+9984

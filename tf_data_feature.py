@@ -10,6 +10,9 @@ FEATURE_SIZE = 1536
 EFEATURE_SIZE = 184320
 MAX_LENGTH = 9
 
+np.random.seed(0)
+random.seed(10)
+
 def get_feature(file_path_new, eyes, face, near, accessory, group, human, occlusion, info, blur, pawscore):
     folder = os.listdir(file_path_new)
     folder.sort()
@@ -60,7 +63,7 @@ def get_link_item(batch, indices):
 def sequence_generator(data, batch_size, isTest=False):
     link_batch = generate_link_batch(batch_size)
     feature_batch = np.zeros((batch_size, FEATURE_SIZE), np.float32)
-    efeature_batch = np.zeros((batch_size, 12,12,1792), np.float32)
+    efeature_batch = np.zeros((batch_size, 7,7,1280), np.float32)
     target_batch = np.zeros((batch_size, 9))
     real_score_batch = np.zeros((batch_size, 1))
     
@@ -103,7 +106,7 @@ def sequence_generator(data, batch_size, isTest=False):
             if count >= batch_size:
                 yield shuffle_data(link_batch, feature_batch.astype(np.float32), efeature_batch.astype(np.float32), target_batch.astype(np.int32), real_score_batch.astype(np.float32))
                 feature_batch= np.zeros((batch_size, FEATURE_SIZE))
-                efeature_batch= np.zeros((batch_size, 12,12,1792))
+                efeature_batch= np.zeros((batch_size, 7,7,1280))
                 target_batch= np.zeros((batch_size, 9))
                 real_score_batch= np.zeros((batch_size, 1))
                 link_batch= generate_link_batch(batch_size)
